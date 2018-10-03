@@ -12,10 +12,7 @@ import cats.data.EitherT
 import cats.effect.{Effect, IO}
 import cats.implicits._
 
-case class User(email: String,
-                name: String,
-                birthDate: LocalDate,
-                drivingLicenceDate: Option[LocalDate])
+case class User(email: String, name: String, birthDate: LocalDate, drivingLicenceDate: Option[LocalDate])
 
 object User {
   implicit val format = Json.format[User]
@@ -65,16 +62,14 @@ class InMemoryUserRepository[F[_]: Applicative] extends UserRepository[F] {
   override def list(): F[Seq[User]] = datas.values.toSeq.pure[F]
 }
 
-class AkkaEventStore[F[_]: Applicative](implicit system: ActorSystem)
-    extends EventStore[F] {
+class AkkaEventStore[F[_]: Applicative](implicit system: ActorSystem) extends EventStore[F] {
   override def publish(event: Event): F[Unit] = {
     system.eventStream.publish(event)
     ().pure[F]
   }
 }
 
-class UserService[F[_]](userRepository: UserRepository[F],
-                        eventStore: EventStore[F])(
+class UserService[F[_]](userRepository: UserRepository[F], eventStore: EventStore[F])(
     implicit ME: MonadError[F, AppErrors]
 ) {
 
@@ -82,22 +77,18 @@ class UserService[F[_]](userRepository: UserRepository[F],
     for {
       _         <- ME.fromEither(validateDrivingLicence(user))
       mayBeUser <- userRepository.get(user.email)
-      _ <- mayBeUser.fold(user.pure[F])(
-            _ => ME.raiseError("User already exist")
-          )
-      _ <- userRepository.set(user.email, user)
-      _ <- eventStore.publish(UserCreated(user))
+      _         <- mayBeUser.fold(user.pure[F])(_ => ME.raiseError("User already exist"))
+      _         <- userRepository.set(user.email, user)
+      _         <- eventStore.publish(UserCreated(user))
     } yield user
 
   def updateUser(id: String, user: User): F[User] =
     for {
       _         <- ME.fromEither(validateDrivingLicence(user))
       mayBeUser <- userRepository.get(user.email)
-      _ <- mayBeUser.fold(
-            ME.raiseError[User]("User not exist, can't be updated")
-          )(_.pure[F])
-      _ <- userRepository.set(user.email, user)
-      _ <- eventStore.publish(UserUpdated(id, user))
+      _         <- mayBeUser.fold(ME.raiseError[User]("User not exist, can't be updated"))(_.pure[F])
+      _         <- userRepository.set(user.email, user)
+      _         <- eventStore.publish(UserUpdated(id, user))
     } yield user
 
   def deleteUser(id: String): F[Unit] =
@@ -113,8 +104,7 @@ class UserService[F[_]](userRepository: UserRepository[F],
   private def validateDrivingLicence(user: User): Either[AppErrors, User] = {
     val licenceMinimumAge = user.birthDate.plusYears(18)
     (user.drivingLicenceDate, user.birthDate) match {
-      case (Some(licenceDate), birthDate)
-          if age(birthDate) >= 18 && licenceDate.isAfter(licenceMinimumAge) =>
+      case (Some(licenceDate), birthDate) if age(birthDate) >= 18 && licenceDate.isAfter(licenceMinimumAge) =>
         Right(user)
       case (Some(_), _) =>
         Left("Too young to get a licence")

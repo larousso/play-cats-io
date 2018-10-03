@@ -12,9 +12,7 @@ import cats.implicits._
 import cats.effect._
 import cats.effect.implicits._
 
-class AppComponents(context: Context)
-    extends BuiltInComponentsFromContext(context)
-    with NoHttpFiltersComponents {
+class AppComponents(context: Context) extends BuiltInComponentsFromContext(context) with NoHttpFiltersComponents {
 
   private implicit val as = actorSystem
   import as.dispatcher
