@@ -23,7 +23,7 @@ scalacOptions ++= Seq(
   "-language:higherKinds", // Allow higher-kinded types
   "-language:implicitConversions", // Allow definition of implicit functions called views
   "-unchecked", // Enable additional warnings where generated code depends on assumptions.
-  "-Ypartial-unification", // Enable partial unification in type constructor inference
+  "-Ypartial-unification" // Enable partial unification in type constructor inference
 )
 
 scalacOptions in (Compile, console) ~= (_.filterNot(
@@ -44,3 +44,7 @@ wartremoverErrors in (Compile, compile) ++= Warts.unsafe
 wartremoverExcluded ++= routes.in(Compile).value
 
 scalafmtOnCompile := true
+
+resolvers += Resolver.sonatypeRepo("releases")
+
+addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.8")

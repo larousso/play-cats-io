@@ -2,14 +2,20 @@ package users
 import java.time.{LocalDate, Period}
 
 import akka.actor.ActorSystem
-import play.api.libs.json.Json
+import play.api.libs.json.{JsPath, Json, JsonValidationError}
 import users.AppErrors.AppErrors
 import users.Event.{UserCreated, UserDeleted, UserUpdated}
 
 import scala.collection.concurrent.TrieMap
-import scala.concurrent.{ExecutionContext, Future}
+import cats._
+import cats.data.EitherT
+import cats.effect.{Effect, IO}
+import cats.implicits._
 
-case class User(email: String, name: String, birthDate: LocalDate, drivingLicenceDate: Option[LocalDate])
+case class User(email: String,
+                name: String,
+                birthDate: LocalDate,
+                drivingLicenceDate: Option[LocalDate])
 
 object User {
   implicit val format = Json.format[User]
@@ -25,85 +31,90 @@ object Event {
 object AppErrors {
 
   type AppErrors = String
+
+  type MyEffectWithError[E, A] = EitherT[IO, E, A]
+
+  type MyEffect[A] = MyEffectWithError[AppErrors, A]
 }
 
-trait UserRepository {
+trait UserRepository[F[_]] {
 
-  def get(id: String): Future[Option[User]]
+  def get(id: String): F[Option[User]]
 
-  def set(id: String, user: User): Future[Unit]
+  def set(id: String, user: User): F[Unit]
 
-  def delete(id: String): Future[Unit]
+  def delete(id: String): F[Unit]
 
-  def list(): Future[Seq[User]]
-
-}
-
-trait EventStore {
-
-  def publish(event: Event): Future[Unit]
+  def list(): F[Seq[User]]
 
 }
 
-class InMemoryUserRepository(implicit ec: ExecutionContext) extends UserRepository {
-  private val datas                                      = TrieMap.empty[String, User]
-  override def get(id: String): Future[Option[User]]     = Future(datas.get(id))
-  override def set(id: String, user: User): Future[Unit] = Future(datas.update(id, user))
-  override def delete(id: String): Future[Unit]          = Future(datas.remove(id).fold(())(_ => ()))
-  override def list(): Future[Seq[User]]                 = Future(datas.values.toSeq)
+trait EventStore[F[_]] {
+
+  def publish(event: Event): F[Unit]
+
 }
 
-class AkkaEventStore(implicit system: ActorSystem) extends EventStore {
-  override def publish(event: Event): Future[Unit] = {
+class InMemoryUserRepository[F[_]: Applicative] extends UserRepository[F] {
+  private val datas                             = TrieMap.empty[String, User]
+  override def get(id: String): F[Option[User]] = datas.get(id).pure[F]
+  override def set(id: String, user: User): F[Unit] =
+    datas.update(id, user).pure[F]
+  override def delete(id: String): F[Unit] =
+    datas.remove(id).fold(())(_ => ()).pure[F]
+  override def list(): F[Seq[User]] = datas.values.toSeq.pure[F]
+}
+
+class AkkaEventStore[F[_]: Applicative](implicit system: ActorSystem)
+    extends EventStore[F] {
+  override def publish(event: Event): F[Unit] = {
     system.eventStream.publish(event)
-    Future.successful(())
+    ().pure[F]
   }
 }
 
-class UserService(userRepository: UserRepository, eventStore: EventStore) {
+class UserService[F[_]](userRepository: UserRepository[F],
+                        eventStore: EventStore[F])(
+    implicit ME: MonadError[F, AppErrors]
+) {
 
-  def createUser(user: User)(implicit ec: ExecutionContext): Future[Either[AppErrors, User]] =
-    validateDrivingLicence(user) match {
-      case Right(_) =>
-        userRepository.get(user.email).flatMap {
-          case Some(_) => Future.successful(Left("User already exist"))
-          case None =>
-            userRepository
-              .set(user.email, user)
-              .flatMap(_ => eventStore.publish(UserCreated(user)))
-              .map(_ => Right(user))
-        }
-      case e =>
-        Future.successful(e)
-    }
+  def createUser(user: User): F[User] =
+    for {
+      _         <- ME.fromEither(validateDrivingLicence(user))
+      mayBeUser <- userRepository.get(user.email)
+      _ <- mayBeUser.fold(user.pure[F])(
+            _ => ME.raiseError("User already exist")
+          )
+      _ <- userRepository.set(user.email, user)
+      _ <- eventStore.publish(UserCreated(user))
+    } yield user
 
-  def updateUser(id: String, user: User)(implicit ec: ExecutionContext): Future[Either[AppErrors, User]] =
-    validateDrivingLicence(user) match {
-      case Right(_) =>
-        userRepository.get(user.email).flatMap {
-          case Some(u) =>
-            userRepository
-              .set(user.email, user)
-              .flatMap(_ => eventStore.publish(UserUpdated(id, user)))
-              .map(_ => Right(user))
-          case None => Future.successful(Left("User already not exist, can't be updated"))
-        }
-      case e =>
-        Future.successful(e)
-    }
+  def updateUser(id: String, user: User): F[User] =
+    for {
+      _         <- ME.fromEither(validateDrivingLicence(user))
+      mayBeUser <- userRepository.get(user.email)
+      _ <- mayBeUser.fold(
+            ME.raiseError[User]("User not exist, can't be updated")
+          )(_.pure[F])
+      _ <- userRepository.set(user.email, user)
+      _ <- eventStore.publish(UserUpdated(id, user))
+    } yield user
 
-  def deleteUser(id: String)(implicit ec: ExecutionContext): Future[Either[AppErrors, Unit]] =
-    userRepository.delete(id).flatMap(_ => eventStore.publish(UserDeleted(id))).map(_ => Right(()))
+  def deleteUser(id: String): F[Unit] =
+    userRepository
+      .delete(id)
+      .flatMap(_ => eventStore.publish(UserDeleted(id)))
 
-  def get(id: String): Future[Option[User]] =
+  def get(id: String): F[Option[User]] =
     userRepository.get(id)
 
-  def list(): Future[Seq[User]] = userRepository.list()
+  def list(): F[Seq[User]] = userRepository.list()
 
   private def validateDrivingLicence(user: User): Either[AppErrors, User] = {
     val licenceMinimumAge = user.birthDate.plusYears(18)
     (user.drivingLicenceDate, user.birthDate) match {
-      case (Some(licenceDate), birthDate) if age(birthDate) >= 18 && licenceDate.isAfter(licenceMinimumAge) =>
+      case (Some(licenceDate), birthDate)
+          if age(birthDate) >= 18 && licenceDate.isAfter(licenceMinimumAge) =>
         Right(user)
       case (Some(_), _) =>
         Left("Too young to get a licence")
@@ -113,6 +124,6 @@ class UserService(userRepository: UserRepository, eventStore: EventStore) {
   }
 
   private def age(date: LocalDate): Int =
-    Period.between(date, LocalDate.now()).getYears()
+    Period.between(date, LocalDate.now()).getYears
 
 }

@@ -1,69 +1,76 @@
 package controllers
 
-import akka.actor.ActorSystem
-import akka.http.scaladsl.util.FastFuture
-import play.api.libs.json.{JsError, JsValue, Json}
-import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
+import cats.data.EitherT
+import cats.effect.IO
+import play.api.libs.json._
+import play.api.mvc._
+import users.AppErrors.{MyEffect, MyEffectWithError}
 import users.{User, UserService}
 
-class UserController(userService: UserService, controllerComponents: ControllerComponents)(
-    implicit actorSystem: ActorSystem
+class UserController(
+    userService: UserService[MyEffect],
+    controllerComponents: ControllerComponents
 ) extends AbstractController(controllerComponents) {
 
-  import actorSystem.dispatcher
+  private def jsResultToEff[A](
+      jsResult: JsResult[A]
+  ): MyEffectWithError[Result, A] =
+    EitherT
+      .fromEither[IO](jsResult.asEither)
+      .leftMap(e => BadRequest(JsError.toJson(e)))
 
-  def createUser(): Action[JsValue] = Action.async(parse.json) { req =>
+  import libs.http._
+
+  def createUser(): Action[JsValue] = Action.asyncEitherT(parse.json) { req =>
     import User._
-    req.body
-      .validate[User]
-      .fold(
-        e => FastFuture.successful(BadRequest(JsError.toJson(e))),
-        toCreate =>
-          userService
-            .createUser(toCreate)
-            .map {
-              case Right(created) => Ok(Json.toJson(created))
-              case Left(value)    => BadRequest(Json.obj("error" -> value))
-          }
-      )
+
+    for {
+      toCreate <- jsResultToEff(req.body.validate[User])
+      created <- userService
+                  .createUser(toCreate)
+                  .leftMap(e => BadRequest(Json.obj("error" -> e)))
+    } yield Ok(Json.toJson(created))
   }
 
-  def updateUser(id: String): Action[JsValue] = Action.async(parse.json) { req =>
-    import User._
-    req.body
-      .validate[User]
-      .fold(
-        e => FastFuture.successful(BadRequest(JsError.toJson(e))),
-        toUpdate =>
-          userService
-            .updateUser(id, toUpdate)
-            .map {
-              case Right(created) => Ok(Json.toJson(created))
-              case Left(value)    => BadRequest(Json.obj("error" -> value))
-          }
-      )
-  }
+  def updateUser(id: String): Action[JsValue] =
+    Action.asyncEitherT(parse.json) { req =>
+      import User._
+      for {
+        toUpdate <- jsResultToEff(req.body.validate[User])
+        updated <- userService
+                    .updateUser(id, toUpdate)
+                    .leftMap(e => BadRequest(Json.obj("error" -> e)))
+      } yield Ok(Json.toJson(updated))
+    }
 
-  def deleteUser(id: String): Action[AnyContent] = Action.async {
+  def deleteUser(id: String): Action[AnyContent] = Action.asyncEitherT { _ =>
     userService
       .deleteUser(id)
-      .map {
-        case Right(created) => NoContent
-        case Left(value)    => BadRequest(Json.obj("error" -> value))
+      .map { _ =>
+        NoContent
       }
+      .leftMap(e => BadRequest(Json.obj("error" -> e)))
   }
 
-  def getUser(id: String): Action[AnyContent] = Action.async {
-    userService.get(id).map {
-      case Some(user) => Ok(Json.toJson(user))
-      case None       => NotFound(Json.obj())
-    }
+  def getUser(id: String): Action[AnyContent] = Action.asyncEitherT { _ =>
+    import User._
+    userService
+      .get(id)
+      .map {
+        case Some(user) => Ok(Json.toJson(user))
+        case None       => NotFound(Json.obj())
+      }
+      .leftMap(e => BadRequest(Json.obj("error" -> e)))
   }
 
-  def listUser(): Action[AnyContent] = Action.async {
-    userService.list.map { users =>
-      Ok(Json.toJson(users))
-    }
+  def listUser(): Action[AnyContent] = Action.asyncEitherT { _ =>
+    userService
+      .list()
+      .map { users =>
+        Ok(Json.toJson(users))
+      }
+      .leftMap(e => BadRequest(Json.obj("error" -> e)))
+
   }
 
 }

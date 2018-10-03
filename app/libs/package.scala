@@ -19,7 +19,9 @@ package object functional {
 
     def liftFEither[E, A](f: F[Either[E, A]]): EitherT[F, E, A] = EitherT(f)
 
-    def liftEither[E, A](f: Either[E, A])(implicit F: Applicative[F]): EitherT[F, E, A] =
+    def liftEither[E, A](
+        f: Either[E, A]
+    )(implicit F: Applicative[F]): EitherT[F, E, A] =
       EitherT.fromEither[F](f)
 
     def mapLeft[E, E1, A](
@@ -30,10 +32,14 @@ package object functional {
     def liftF[E, A](f: F[A])(implicit F: Functor[F]): EitherT[F, E, A] =
       EitherT.liftF[F, E, A](f)
 
-    def liftOption[E, A](ifNone: => E)(o: Option[A])(implicit F: Applicative[F]): EitherT[F, E, A] =
+    def liftOption[E, A](
+        ifNone: => E
+    )(o: Option[A])(implicit F: Applicative[F]): EitherT[F, E, A] =
       EitherT.fromOption[F](o, ifNone)
 
-    def liftFOption[E, A](ifNone: => E)(o: F[Option[A]])(implicit F: Functor[F]): EitherT[F, E, A] = {
+    def liftFOption[E, A](
+        ifNone: => E
+    )(o: F[Option[A]])(implicit F: Functor[F]): EitherT[F, E, A] = {
       val futureEither: F[Either[E, A]] = o.map {
         case Some(value) => Right(value)
         case None        => Left(ifNone)
@@ -50,7 +56,8 @@ package object functional {
           EitherT.left(M.pure(onError(errors)))
       }
 
-    def pure[E, A](a: A)(implicit F: Applicative[F]): EitherT[F, E, A] = EitherT.pure[F, E](a)
+    def pure[E, A](a: A)(implicit F: Applicative[F]): EitherT[F, E, A] =
+      EitherT.pure[F, E](a)
   }
 
 }

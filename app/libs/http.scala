@@ -13,15 +13,22 @@ object http {
       cb(c).toIO.unsafeToFuture()
     }
 
-    def asyncF[F[_]: Effect, A](bp: BodyParser[A])(cb: R[A] => F[Result]): Action[A] = ab.async[A](bp) { c =>
-      cb(c).toIO.unsafeToFuture()
-    }
+    def asyncF[F[_]: Effect, A](
+        bp: BodyParser[A]
+    )(cb: R[A] => F[Result]): Action[A] =
+      ab.async[A](bp) { c =>
+        cb(c).toIO.unsafeToFuture()
+      }
 
-    def asyncEitherT[F[_]: Effect](cb: R[B] => EitherT[F, Result, Result]): Action[B] = ab.async { c =>
+    def asyncEitherT[F[_]: Effect](
+        cb: R[B] => EitherT[F, Result, Result]
+    ): Action[B] = ab.async { c =>
       cb(c).value.map(_.merge).toIO.unsafeToFuture()
     }
 
-    def asyncEitherT[F[_]: Effect, A](bp: BodyParser[A])(cb: R[A] => EitherT[F, Result, Result]): Action[A] =
+    def asyncEitherT[F[_]: Effect, A](
+        bp: BodyParser[A]
+    )(cb: R[A] => EitherT[F, Result, Result]): Action[A] =
       ab.async[A](bp) { c =>
         cb(c).value.map(_.merge).toIO.unsafeToFuture()
       }
