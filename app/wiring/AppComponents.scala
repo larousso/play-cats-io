@@ -5,12 +5,13 @@ import play.api._
 import com.softwaremill.macwire._
 import _root_.controllers.UserController
 import router.Routes
-import users.{InMemoryUserRepository, UserService}
+import users.{AkkaEventStore, InMemoryUserRepository, UserService}
 
 class AppComponents(context: Context) extends BuiltInComponentsFromContext(context) with NoHttpFiltersComponents {
 
   private implicit def as = actorSystem
 
+  private lazy val eventStore     = wire[AkkaEventStore]
   private lazy val userRepository = wire[InMemoryUserRepository]
 
   private lazy val userService = wire[UserService]

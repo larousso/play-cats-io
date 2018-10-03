@@ -4,7 +4,7 @@ version := "1.0-SNAPSHOT"
 
 lazy val root = (project in file(".")).enablePlugins(PlayScala)
 
-scalaVersion := "2.12.4"
+scalaVersion := "2.12.7"
 
 libraryDependencies ++= Seq(
   "org.typelevel"            %% "cats-core"   % "1.3.1",
@@ -15,7 +15,7 @@ libraryDependencies ++= Seq(
 scalacOptions ++= Seq(
   "-deprecation", // Emit warning and location for usages of deprecated APIs.
   "-encoding",
-  "utf-8", // Specify character encoding used by source files.
+  "utf-8", //ok  Specify character encoding used by source files.
   "-explaintypes", // Explain type errors in more detail.
   "-feature", // Emit warning and location for usages of features that should be imported explicitly.
   "-language:existentials", // Existential types (besides wildcard types) can be written and inferred

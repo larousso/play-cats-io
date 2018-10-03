@@ -6,11 +6,6 @@ import play.api.libs.json.{JsError, JsValue, Json}
 import play.api.mvc.{AbstractController, Action, AnyContent, ControllerComponents}
 import users.{User, UserService}
 
-/**
- * Created by Lloyd on 12/6/16.
- *
- * Copyright 2016
- */
 class UserController(userService: UserService, controllerComponents: ControllerComponents)(
     implicit actorSystem: ActorSystem
 ) extends AbstractController(controllerComponents) {
@@ -22,7 +17,7 @@ class UserController(userService: UserService, controllerComponents: ControllerC
     req.body
       .validate[User]
       .fold(
-        e => FastFuture.successful(BadGateway(JsError.toJson(e))),
+        e => FastFuture.successful(BadRequest(JsError.toJson(e))),
         toCreate =>
           userService
             .createUser(toCreate)
@@ -31,6 +26,31 @@ class UserController(userService: UserService, controllerComponents: ControllerC
               case Left(value)    => BadRequest(Json.obj("error" -> value))
           }
       )
+  }
+
+  def updateUser(id: String): Action[JsValue] = Action.async(parse.json) { req =>
+    import User._
+    req.body
+      .validate[User]
+      .fold(
+        e => FastFuture.successful(BadRequest(JsError.toJson(e))),
+        toUpdate =>
+          userService
+            .updateUser(id, toUpdate)
+            .map {
+              case Right(created) => Ok(Json.toJson(created))
+              case Left(value)    => BadRequest(Json.obj("error" -> value))
+          }
+      )
+  }
+
+  def deleteUser(id: String): Action[AnyContent] = Action.async {
+    userService
+      .deleteUser(id)
+      .map {
+        case Right(created) => NoContent
+        case Left(value)    => BadRequest(Json.obj("error" -> value))
+      }
   }
 
   def getUser(id: String): Action[AnyContent] = Action.async {
